@@ -5,7 +5,7 @@ using CustomerService.Domain.Entities;
 namespace CustomerService.Application.Notifications;
 
 public sealed class NotificationDeliveryService(
-    IRegistrationRepository repo,
+    IRegistrationCommandRepository commandRepository,
     IEmailSender emailSender,
     ISmsSender smsSender) : INotificationDeliveryService
 {
@@ -29,8 +29,8 @@ public sealed class NotificationDeliveryService(
             destination,
             template.Code);
 
-        await repo.AddDeliveryAsync(delivery, ct);
-        await repo.SaveChangesAsync(ct);
+        await commandRepository.AddDeliveryAsync(delivery, ct);
+        await commandRepository.SaveChangesAsync(ct);
 
         try
         {
@@ -56,7 +56,7 @@ public sealed class NotificationDeliveryService(
         }
         finally
         {
-            await repo.SaveChangesAsync(ct);
+            await commandRepository.SaveChangesAsync(ct);
         }
     }
 

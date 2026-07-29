@@ -29,9 +29,6 @@ IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'notify')
     EXEC(N'CREATE SCHEMA notify');
 GO
 
-IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'crm')
-    EXEC(N'CREATE SCHEMA crm');
-GO
 
 /* =========================================================
    TABLES
@@ -260,176 +257,12 @@ BEGIN
 END;
 GO
 
-IF OBJECT_ID(N'crm.CustomerAccounts', N'U') IS NULL
-BEGIN
-    CREATE TABLE crm.CustomerAccounts
-    (
-        Id                  uniqueidentifier NOT NULL,
-        RegistrationId      uniqueidentifier NOT NULL,
-        Email               nvarchar(320)    NOT NULL,
-        MobileNumber        nvarchar(30)     NOT NULL,
-        NationalId          nvarchar(100)    NULL,
-        FullName            nvarchar(200)    NULL,
-        LegacyCustomerId    nvarchar(100)    NULL,
-        IsMigrated          bit              NOT NULL,
-        CreatedUtc          datetime2(7)     NOT NULL,
-        CONSTRAINT PK_CustomerAccounts PRIMARY KEY CLUSTERED (Id),
-        CONSTRAINT FK_CustomerAccounts_RegistrationApplications
-            FOREIGN KEY (RegistrationId)
-            REFERENCES reg.RegistrationApplications (Id),
-        CONSTRAINT UQ_CustomerAccounts_RegistrationId UNIQUE (RegistrationId)
-    );
-END;
-GO
 
 /* =========================================================
    INDEXES
    ========================================================= */
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_Invoices_InvoiceNumber'
-      AND object_id = OBJECT_ID(N'dbo.Invoices')
-)
-    CREATE INDEX IX_Invoices_InvoiceNumber
-        ON dbo.Invoices (InvoiceNumber);
-GO
 
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_RegistrationApplications_NormalizedEmail'
-      AND object_id = OBJECT_ID(N'reg.RegistrationApplications')
-)
-    CREATE INDEX IX_RegistrationApplications_NormalizedEmail
-        ON reg.RegistrationApplications (NormalizedEmail);
-GO
 
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_RegistrationApplications_NormalizedMobileNumber'
-      AND object_id = OBJECT_ID(N'reg.RegistrationApplications')
-)
-    CREATE INDEX IX_RegistrationApplications_NormalizedMobileNumber
-        ON reg.RegistrationApplications (NormalizedMobileNumber);
-GO
-
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_RegistrationApplications_LegacyCustomerId'
-      AND object_id = OBJECT_ID(N'reg.RegistrationApplications')
-)
-    CREATE INDEX IX_RegistrationApplications_LegacyCustomerId
-        ON reg.RegistrationApplications (LegacyCustomerId)
-        WHERE LegacyCustomerId IS NOT NULL;
-GO
-
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_OtpChallenges_Registration_Channel_CreatedUtc'
-      AND object_id = OBJECT_ID(N'reg.OtpChallenges')
-)
-    CREATE INDEX IX_OtpChallenges_Registration_Channel_CreatedUtc
-        ON reg.OtpChallenges (RegistrationId, Channel, CreatedUtc DESC);
-GO
-
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_OtpVerificationAttempts_Challenge_SubmittedUtc'
-      AND object_id = OBJECT_ID(N'reg.OtpVerificationAttempts')
-)
-    CREATE INDEX IX_OtpVerificationAttempts_Challenge_SubmittedUtc
-        ON reg.OtpVerificationAttempts (OtpChallengeId, SubmittedUtc DESC);
-GO
-
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'UX_NotificationTemplates_Code_Channel_IsActive'
-      AND object_id = OBJECT_ID(N'notify.NotificationTemplates')
-)
-    CREATE UNIQUE INDEX UX_NotificationTemplates_Code_Channel_IsActive
-        ON notify.NotificationTemplates (Code, Channel, IsActive);
-GO
-
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_NotificationDeliveries_Registration_CreatedUtc'
-      AND object_id = OBJECT_ID(N'notify.NotificationDeliveries')
-)
-    CREATE INDEX IX_NotificationDeliveries_Registration_CreatedUtc
-        ON notify.NotificationDeliveries (RegistrationId, CreatedUtc DESC);
-GO
-
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_NotificationDeliveries_OtpChallengeId'
-      AND object_id = OBJECT_ID(N'notify.NotificationDeliveries')
-)
-    CREATE INDEX IX_NotificationDeliveries_OtpChallengeId
-        ON notify.NotificationDeliveries (OtpChallengeId)
-        WHERE OtpChallengeId IS NOT NULL;
-GO
-
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_RegistrationStepHistory_Registration_OccurredUtc'
-      AND object_id = OBJECT_ID(N'reg.RegistrationStepHistory')
-)
-    CREATE INDEX IX_RegistrationStepHistory_Registration_OccurredUtc
-        ON reg.RegistrationStepHistory (RegistrationId, OccurredUtc DESC);
-GO
-
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_CustomerAccounts_LegacyCustomerId'
-      AND object_id = OBJECT_ID(N'crm.CustomerAccounts')
-)
-    CREATE INDEX IX_CustomerAccounts_LegacyCustomerId
-        ON crm.CustomerAccounts (LegacyCustomerId)
-        WHERE LegacyCustomerId IS NOT NULL;
-GO
-
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_CustomerAccounts_Email'
-      AND object_id = OBJECT_ID(N'crm.CustomerAccounts')
-)
-    CREATE INDEX IX_CustomerAccounts_Email
-        ON crm.CustomerAccounts (Email);
-GO
-
-IF NOT EXISTS
-(
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_CustomerAccounts_MobileNumber'
-      AND object_id = OBJECT_ID(N'crm.CustomerAccounts')
-)
-    CREATE INDEX IX_CustomerAccounts_MobileNumber
-        ON crm.CustomerAccounts (MobileNumber);
-GO
 
 /* =========================================================
    VIEWS

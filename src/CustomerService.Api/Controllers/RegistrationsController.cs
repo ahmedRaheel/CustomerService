@@ -1,7 +1,6 @@
 using CustomerService.Api.Extensions;
 using CustomerService.Application.Registrations;
 using CustomerService.Domain.Dtos;
-using CustomerService.Domain.Entities;
 using CustomerService.Domain.Shared;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -24,58 +23,6 @@ public sealed class RegistrationsController(ISender sender) : ControllerBase
             r.Type,
             r.NationalId,
             r.LegacyCustomerId), ct);
-
-        return this.ToActionResult(result);
-    }
-
-    [HttpPost("{id:guid}/otp/email")]
-    public async Task<ActionResult> SendEmail(Guid id, CancellationToken ct)
-    {
-        var result = await sender.Send(
-            new SendOtpCommand(id, OtpChannel.Email),
-            ct);
-
-        return this.ToActionResult(result);
-    }
-
-    [HttpPost("{id:guid}/otp/sms")]
-    public async Task<ActionResult> SendSms(Guid id, CancellationToken ct)
-    {
-        var result = await sender.Send(
-            new SendOtpCommand(id, OtpChannel.Sms),
-            ct);
-
-        return this.ToActionResult(result);
-    }
-
-    [HttpPost("{id:guid}/otp/email/verify")]
-    public async Task<ActionResult> VerifyEmail(
-        Guid id,
-        VerifyOtpRequest r,
-        CancellationToken ct)
-    {
-        var result = await sender.Send(new VerifyOtpCommand(
-            id,
-            OtpChannel.Email,
-            r.Otp,
-            HttpContext.Connection.RemoteIpAddress?.ToString(),
-            Request.Headers.UserAgent.ToString()), ct);
-
-        return this.ToActionResult(result);
-    }
-
-    [HttpPost("{id:guid}/otp/sms/verify")]
-    public async Task<ActionResult> VerifySms(
-        Guid id,
-        VerifyOtpRequest r,
-        CancellationToken ct)
-    {
-        var result = await sender.Send(new VerifyOtpCommand(
-            id,
-            OtpChannel.Sms,
-            r.Otp,
-            HttpContext.Connection.RemoteIpAddress?.ToString(),
-            Request.Headers.UserAgent.ToString()), ct);
 
         return this.ToActionResult(result);
     }
@@ -150,16 +97,6 @@ public sealed class RegistrationsController(ISender sender) : ControllerBase
         CancellationToken ct)
     {
         var result = await sender.Send(new GetRegistrationQuery(id), ct);
-
-        return this.ToActionResult(result);
-    }
-
-    [HttpGet("{id:guid}/notification-deliveries")]
-    public async Task<ActionResult<Result<IReadOnlyList<NotificationDeliveryDto>>>> Deliveries(
-        Guid id,
-        CancellationToken ct)
-    {
-        var result = await sender.Send(new GetDeliveriesQuery(id), ct);
 
         return this.ToActionResult(result);
     }

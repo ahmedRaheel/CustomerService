@@ -9,14 +9,14 @@ namespace CustomerService.Application.Terms;
 public sealed record GetActiveTermsQuery
     : IRequest<Result<IReadOnlyList<TermDocumentDto>>>;
 
-public sealed class GetActiveTermsHandler(IRegistrationRepository repo)
+public sealed class GetActiveTermsHandler(IRegistrationQueryRepository queryRepository)
     : IRequestHandler<GetActiveTermsQuery, Result<IReadOnlyList<TermDocumentDto>>>
 {
     public async Task<Result<IReadOnlyList<TermDocumentDto>>> Handle(
         GetActiveTermsQuery r,
         CancellationToken ct)
     {
-        var terms = await repo.GetActiveTermsAsync(ct);
+        var terms = await queryRepository.GetActiveTermsAsync(ct);
         var response = terms
             .Select(x => new TermDocumentDto(
                 x.Id,
@@ -44,14 +44,14 @@ public sealed class GetTermValidator : AbstractValidator<GetTermQuery>
     }
 }
 
-public sealed class GetTermHandler(IRegistrationRepository repo)
+public sealed class GetTermHandler(IRegistrationQueryRepository queryRepository)
     : IRequestHandler<GetTermQuery, Result<TermDocumentDto>>
 {
     public async Task<Result<TermDocumentDto>> Handle(
         GetTermQuery r,
         CancellationToken ct)
     {
-        var term = await repo.GetTermAsync(r.Id, ct);
+        var term = await queryRepository.GetTermAsync(r.Id, ct);
 
         if (term is null)
             return Result.NotFound<TermDocumentDto>("Term document not found.");

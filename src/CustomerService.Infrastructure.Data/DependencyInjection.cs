@@ -1,14 +1,28 @@
-using CustomerService.Application.Abstractions.Persistence;using CustomerService.Infrastructure.Data.Commands;using CustomerService.Infrastructure.Data.Persistence.Context;using Microsoft.EntityFrameworkCore;using Microsoft.Extensions.Configuration;using Microsoft.Extensions.DependencyInjection;
+using CustomerService.Application.Abstractions.Persistence;
+using CustomerService.Infrastructure.Data.Commands;
+using CustomerService.Infrastructure.Data.Persistence.Context;
+using CustomerService.Infrastructure.Data.Queries;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
 namespace CustomerService.Infrastructure.Data;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructureData(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddInfrastructureData(
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
-        services.AddDbContext<ApplicationDbContext>(o => o.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
-        services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
+        services.AddDbContext<ApplicationDbContext>(options =>
+            options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
+
+        services.AddScoped<IApplicationDbContext>(provider =>
+            provider.GetRequiredService<ApplicationDbContext>());
         services.AddScoped<IApplicationDbConnectionFactory, ApplicationDbConnectionFactory>();
-        services.AddScoped<IRegistrationRepository, RegistrationRepository>();
+        services.AddScoped<IRegistrationCommandRepository, RegistrationCommandRepository>();
+        services.AddScoped<IRegistrationQueryRepository, RegistrationQueryRepository>();
+
         return services;
     }
 }

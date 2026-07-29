@@ -11,7 +11,6 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<TermDocument> TermDocuments => Set<TermDocument>();
     public DbSet<RegistrationConsent> RegistrationConsents => Set<RegistrationConsent>();
     public DbSet<RegistrationStepHistory> RegistrationStepHistories => Set<RegistrationStepHistory>();
-    public DbSet<CustomerAccount> CustomerAccounts => Set<CustomerAccount>();
     protected override void OnModelCreating(ModelBuilder builder)
     {
         builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);

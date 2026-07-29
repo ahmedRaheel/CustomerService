@@ -270,40 +270,7 @@ public sealed class RegistrationRepository(
         await dbContext.RegistrationStepHistories.AddAsync(
             stepHistory,
             cancellationToken);
-    }
-
-    public Task<CustomerAccount?> GetCustomerByLegacyIdAsync(
-        string legacyCustomerId,
-        CancellationToken cancellationToken)
-    {
-        var normalizedLegacyCustomerId = legacyCustomerId.Trim();
-
-        return dbContext.CustomerAccounts
-            .SingleOrDefaultAsync(
-                customer =>
-                    customer.LegacyCustomerId == normalizedLegacyCustomerId,
-                cancellationToken);
-    }
-
-    public async Task AddCustomerAsync(
-        CustomerAccount customerAccount,
-        CancellationToken cancellationToken)
-    {
-        var customerExists = await dbContext.CustomerAccounts
-            .AnyAsync(
-                customer =>
-                    customer.RegistrationId == customerAccount.RegistrationId,
-                cancellationToken);
-
-        if (customerExists)
-        {
-            return;
-        }
-
-        await dbContext.CustomerAccounts.AddAsync(
-            customerAccount,
-            cancellationToken);
-    }
+    }  
 
     public Task<int> SaveChangesAsync(
         CancellationToken cancellationToken)
