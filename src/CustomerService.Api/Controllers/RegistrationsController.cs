@@ -1,19 +1,166 @@
-using CustomerService.Application.Registrations;using CustomerService.Domain.Dtos;using CustomerService.Domain.Entities;using MediatR;using Microsoft.AspNetCore.Mvc;
+using CustomerService.Api.Extensions;
+using CustomerService.Application.Registrations;
+using CustomerService.Domain.Dtos;
+using CustomerService.Domain.Entities;
+using CustomerService.Domain.Shared;
+using MediatR;
+using Microsoft.AspNetCore.Mvc;
+
 namespace CustomerService.Api.Controllers;
-[ApiController][Route("api/v1/registrations")][Produces("application/json")]
-public sealed class RegistrationsController(ISender sender):ControllerBase
+
+[ApiController]
+[Route("api/v1/registrations")]
+[Produces("application/json")]
+public sealed class RegistrationsController(ISender sender) : ControllerBase
 {
- [HttpPost]public async Task<ActionResult<ApiResponse<StartRegistrationResponse>>> Start(StartRegistrationRequest r,CancellationToken ct){var x=await sender.Send(new StartRegistrationCommand(r.Email,r.MobileNumber,r.Type,r.NationalId,r.LegacyCustomerId),ct);return CreatedAtAction(nameof(Get),new{id=x.RegistrationId},Ok(x,"Registration started."));}
- [HttpPost("{id:guid}/otp/email")]public async Task<ActionResult<ApiResponse<object?>>> SendEmail(Guid id,CancellationToken ct){await sender.Send(new SendOtpCommand(id,OtpChannel.Email),ct);return Accepted(Ok<object?>(null,"Email OTP sent."));}
- [HttpPost("{id:guid}/otp/sms")]public async Task<ActionResult<ApiResponse<object?>>> SendSms(Guid id,CancellationToken ct){await sender.Send(new SendOtpCommand(id,OtpChannel.Sms),ct);return Accepted(Ok<object?>(null,"SMS OTP sent."));}
- [HttpPost("{id:guid}/otp/email/verify")]public async Task<ActionResult<ApiResponse<object?>>> VerifyEmail(Guid id,VerifyOtpRequest r,CancellationToken ct){await sender.Send(new VerifyOtpCommand(id,OtpChannel.Email,r.Otp,HttpContext.Connection.RemoteIpAddress?.ToString(),Request.Headers.UserAgent.ToString()),ct);return Ok(Ok<object?>(null,"Email verified."));}
- [HttpPost("{id:guid}/otp/sms/verify")]public async Task<ActionResult<ApiResponse<object?>>> VerifySms(Guid id,VerifyOtpRequest r,CancellationToken ct){await sender.Send(new VerifyOtpCommand(id,OtpChannel.Sms,r.Otp,HttpContext.Connection.RemoteIpAddress?.ToString(),Request.Headers.UserAgent.ToString()),ct);return Ok(Ok<object?>(null,"Mobile verified."));}
- [HttpPut("{id:guid}/profile")]public async Task<ActionResult<ApiResponse<object?>>> Profile(Guid id,UpdateProfileRequest r,CancellationToken ct){await sender.Send(new UpdateRegistrationProfileCommand(id,r.FullName,r.NationalId),ct);return Ok(Ok<object?>(null,"Profile updated."));}
- [HttpPost("{id:guid}/terms/accept")]public async Task<ActionResult<ApiResponse<object?>>> Accept(Guid id,AcceptTermsRequest r,CancellationToken ct){await sender.Send(new AcceptTermsCommand(id,r.TermIds,HttpContext.Connection.RemoteIpAddress?.ToString(),Request.Headers.UserAgent.ToString()),ct);return Ok(Ok<object?>(null,"Terms accepted."));}
- [HttpPut("{id:guid}/pin")]public async Task<ActionResult<ApiResponse<object?>>> Pin(Guid id,SetPinRequest r,CancellationToken ct){await sender.Send(new SetPinCommand(id,r.Pin,r.ConfirmPin),ct);return Ok(Ok<object?>(null,"PIN configured."));}
- [HttpPost("{id:guid}/complete")]public async Task<ActionResult<ApiResponse<object?>>> Complete(Guid id,CancellationToken ct){await sender.Send(new CompleteRegistrationCommand(id),ct);return Ok(Ok<object?>(null,"Registration completed."));}
- [HttpPost("{id:guid}/cancel")]public async Task<ActionResult<ApiResponse<object?>>> Cancel(Guid id,CancelRegistrationRequest r,CancellationToken ct){await sender.Send(new CancelRegistrationCommand(id,r.Reason),ct);return Ok(Ok<object?>(null,"Registration cancelled."));}
- [HttpGet("{id:guid}")]public async Task<ActionResult<ApiResponse<RegistrationDto>>> Get(Guid id,CancellationToken ct)=>Ok(Ok(await sender.Send(new GetRegistrationQuery(id),ct),"Registration retrieved."));
- [HttpGet("{id:guid}/notification-deliveries")]public async Task<ActionResult<ApiResponse<IReadOnlyList<NotificationDeliveryDto>>>> Deliveries(Guid id,CancellationToken ct)=>Ok(Ok(await sender.Send(new GetDeliveriesQuery(id),ct),"Deliveries retrieved."));
- private ApiResponse<T> Ok<T>(T? d,string m)=>ApiResponse<T>.Ok(d,m,HttpContext.TraceIdentifier);
+    [HttpPost]
+    public async Task<ActionResult<Result<StartRegistrationResponse>>> Start(
+        StartRegistrationRequest r,
+        CancellationToken ct)
+    {
+        var result = await sender.Send(new StartRegistrationCommand(
+            r.Email,
+            r.MobileNumber,
+            r.Type,
+            r.NationalId,
+            r.LegacyCustomerId), ct);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpPost("{id:guid}/otp/email")]
+    public async Task<ActionResult> SendEmail(Guid id, CancellationToken ct)
+    {
+        var result = await sender.Send(
+            new SendOtpCommand(id, OtpChannel.Email),
+            ct);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpPost("{id:guid}/otp/sms")]
+    public async Task<ActionResult> SendSms(Guid id, CancellationToken ct)
+    {
+        var result = await sender.Send(
+            new SendOtpCommand(id, OtpChannel.Sms),
+            ct);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpPost("{id:guid}/otp/email/verify")]
+    public async Task<ActionResult> VerifyEmail(
+        Guid id,
+        VerifyOtpRequest r,
+        CancellationToken ct)
+    {
+        var result = await sender.Send(new VerifyOtpCommand(
+            id,
+            OtpChannel.Email,
+            r.Otp,
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            Request.Headers.UserAgent.ToString()), ct);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpPost("{id:guid}/otp/sms/verify")]
+    public async Task<ActionResult> VerifySms(
+        Guid id,
+        VerifyOtpRequest r,
+        CancellationToken ct)
+    {
+        var result = await sender.Send(new VerifyOtpCommand(
+            id,
+            OtpChannel.Sms,
+            r.Otp,
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            Request.Headers.UserAgent.ToString()), ct);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpPut("{id:guid}/profile")]
+    public async Task<ActionResult> Profile(
+        Guid id,
+        UpdateProfileRequest r,
+        CancellationToken ct)
+    {
+        var result = await sender.Send(new UpdateRegistrationProfileCommand(
+            id,
+            r.FullName,
+            r.NationalId), ct);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpPost("{id:guid}/terms/accept")]
+    public async Task<ActionResult> Accept(
+        Guid id,
+        AcceptTermsRequest r,
+        CancellationToken ct)
+    {
+        var result = await sender.Send(new AcceptTermsCommand(
+            id,
+            r.TermIds,
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            Request.Headers.UserAgent.ToString()), ct);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpPut("{id:guid}/pin")]
+    public async Task<ActionResult> Pin(
+        Guid id,
+        SetPinRequest r,
+        CancellationToken ct)
+    {
+        var result = await sender.Send(new SetPinCommand(
+            id,
+            r.Pin,
+            r.ConfirmPin), ct);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpPost("{id:guid}/complete")]
+    public async Task<ActionResult> Complete(Guid id, CancellationToken ct)
+    {
+        var result = await sender.Send(new CompleteRegistrationCommand(id), ct);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpPost("{id:guid}/cancel")]
+    public async Task<ActionResult> Cancel(
+        Guid id,
+        CancelRegistrationRequest r,
+        CancellationToken ct)
+    {
+        var result = await sender.Send(new CancelRegistrationCommand(
+            id,
+            r.Reason), ct);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<Result<RegistrationDto>>> Get(
+        Guid id,
+        CancellationToken ct)
+    {
+        var result = await sender.Send(new GetRegistrationQuery(id), ct);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpGet("{id:guid}/notification-deliveries")]
+    public async Task<ActionResult<Result<IReadOnlyList<NotificationDeliveryDto>>>> Deliveries(
+        Guid id,
+        CancellationToken ct)
+    {
+        var result = await sender.Send(new GetDeliveriesQuery(id), ct);
+
+        return this.ToActionResult(result);
+    }
 }

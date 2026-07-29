@@ -1,6 +1,70 @@
-using MediatR;using CustomerService.Application.Abstractions.Persistence;using CustomerService.Domain.Dtos;using CustomerService.Domain.Exceptions;
+using CustomerService.Application.Abstractions.Persistence;
+using CustomerService.Domain.Dtos;
+using CustomerService.Domain.Shared;
+using FluentValidation;
+using MediatR;
+
 namespace CustomerService.Application.Terms;
-public sealed record GetActiveTermsQuery():IRequest<IReadOnlyList<TermDocumentDto>>;
-public sealed class GetActiveTermsHandler(IRegistrationRepository repo):IRequestHandler<GetActiveTermsQuery,IReadOnlyList<TermDocumentDto>>{public async Task<IReadOnlyList<TermDocumentDto>> Handle(GetActiveTermsQuery r,CancellationToken ct)=>(await repo.GetActiveTermsAsync(ct)).Select(x=>new TermDocumentDto(x.Id,x.Code,x.Title,x.Content,x.Version,x.IsRequired,x.EffectiveFromUtc)).ToList();}
-public sealed record GetTermQuery(Guid Id):IRequest<TermDocumentDto>;
-public sealed class GetTermHandler(IRegistrationRepository repo):IRequestHandler<GetTermQuery,TermDocumentDto>{public async Task<TermDocumentDto> Handle(GetTermQuery r,CancellationToken ct){var x=await repo.GetTermAsync(r.Id,ct)??throw new NotFoundException("Term document not found.");return new(x.Id,x.Code,x.Title,x.Content,x.Version,x.IsRequired,x.EffectiveFromUtc);}}
+
+public sealed record GetActiveTermsQuery
+    : IRequest<Result<IReadOnlyList<TermDocumentDto>>>;
+
+public sealed class GetActiveTermsHandler(IRegistrationRepository repo)
+    : IRequestHandler<GetActiveTermsQuery, Result<IReadOnlyList<TermDocumentDto>>>
+{
+    public async Task<Result<IReadOnlyList<TermDocumentDto>>> Handle(
+        GetActiveTermsQuery r,
+        CancellationToken ct)
+    {
+        var terms = await repo.GetActiveTermsAsync(ct);
+        var response = terms
+            .Select(x => new TermDocumentDto(
+                x.Id,
+                x.Code,
+                x.Title,
+                x.Content,
+                x.Version,
+                x.IsRequired,
+                x.EffectiveFromUtc))
+            .ToList();
+
+        return Result.Success<IReadOnlyList<TermDocumentDto>>(
+            response,
+            "Terms retrieved.");
+    }
+}
+
+public sealed record GetTermQuery(Guid Id) : IRequest<Result<TermDocumentDto>>;
+
+public sealed class GetTermValidator : AbstractValidator<GetTermQuery>
+{
+    public GetTermValidator()
+    {
+        RuleFor(x => x.Id).NotEmpty();
+    }
+}
+
+public sealed class GetTermHandler(IRegistrationRepository repo)
+    : IRequestHandler<GetTermQuery, Result<TermDocumentDto>>
+{
+    public async Task<Result<TermDocumentDto>> Handle(
+        GetTermQuery r,
+        CancellationToken ct)
+    {
+        var term = await repo.GetTermAsync(r.Id, ct);
+
+        if (term is null)
+            return Result.NotFound<TermDocumentDto>("Term document not found.");
+
+        var response = new TermDocumentDto(
+            term.Id,
+            term.Code,
+            term.Title,
+            term.Content,
+            term.Version,
+            term.IsRequired,
+            term.EffectiveFromUtc);
+
+        return Result.Success(response, "Term retrieved.");
+    }
+}
