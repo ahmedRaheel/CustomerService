@@ -1,141 +1,19 @@
-using CustomerService.Application.Registrations;
-using CustomerService.Domain.Dtos;
-using MediatR;
-using Microsoft.AspNetCore.Mvc;
-
+using CustomerService.Application.Registrations;using CustomerService.Domain.Dtos;using CustomerService.Domain.Entities;using MediatR;using Microsoft.AspNetCore.Mvc;
 namespace CustomerService.Api.Controllers;
-
-[ApiController]
-[Route("api/v1/registrations")]
-[Produces("application/json")]
-public sealed class RegistrationsController(ISender sender) : ControllerBase
+[ApiController][Route("api/v1/registrations")][Produces("application/json")]
+public sealed class RegistrationsController(ISender sender):ControllerBase
 {
-    [HttpPost]
-    [ProducesResponseType(typeof(ApiResponse<StartRegistrationResponse>), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<ApiResponse<StartRegistrationResponse>>> StartAsync(
-        [FromBody] StartRegistrationRequest request,
-        CancellationToken cancellationToken)
-    {
-        var result = await sender.Send(
-            new StartRegistrationCommand(request.Email, request.MobileNumber, request.Type, request.NationalId),
-            cancellationToken);      
-
-        var response = Success(result, "Registration started successfully.");
-
-        return CreatedAtAction(
-            nameof(GetByIdAsync),
-            new { id = result.RegistrationId },
-            response);
-    }
-
-    [HttpPost("{id:guid}/otp/email")]
-    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<object?>>> SendEmailOtpAsync(
-        [FromRoute] Guid id,
-        CancellationToken cancellationToken)
-    {
-        await sender.Send(new SendEmailOtpCommand(id), cancellationToken);
-        
-        return Ok(Success<object?>(null, "Email OTP sent successfully."));
-    }
-
-    [HttpPost("{id:guid}/otp/sms")]
-    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<object?>>> SendSmsOtpAsync(
-        [FromRoute] Guid id,
-        CancellationToken cancellationToken)
-    {
-        await sender.Send(new SendSmsOtpCommand(id), cancellationToken);
-        
-        return Ok(Success<object?>(null, "SMS OTP sent successfully."));
-    }
-
-    [HttpPost("{id:guid}/otp/verify")]
-    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<object?>>> VerifyOtpsAsync(
-        [FromRoute] Guid id,
-        [FromBody] VerifyOtpsRequest request,
-        CancellationToken cancellationToken)
-    {
-        await sender.Send(
-            new VerifyBothOtpsCommand(id, request.EmailOtp, request.SmsOtp),
-            cancellationToken);
-      
-        return Ok(Success<object?>(null, "Email and SMS OTPs verified successfully."));
-    }
-
-    [HttpPut("{id:guid}/profile")]
-    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<object?>>> UpdateProfileAsync(
-        [FromRoute] Guid id,
-        [FromBody] UpdateProfileRequest request,
-        CancellationToken cancellationToken)
-    {
-        await sender.Send(
-            new UpdateRegistrationProfileCommand(id, request.FullName, request.NationalId),
-            cancellationToken);      
-        return Ok(Success<object?>(null, "Registration profile updated successfully."));
-    }
-
-
-    [HttpPut("{id:guid}/pin")]
-    [ProducesResponseType(typeof(ApiResponse<SetPinResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<SetPinResponse>>> SetPinAsync(
-        [FromRoute] Guid id,
-        [FromBody] SetPinRequest request,
-        CancellationToken cancellationToken)
-    {
-        var result = await sender.Send(
-            new SetRegistrationPinCommand(id, request.Pin, request.ConfirmPin),
-            cancellationToken);
-
-        return Ok(Success(result, "Six-digit PIN configured successfully."));
-    }
-
-    [HttpGet("{id:guid}/notification-deliveries")]
-    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<NotificationDeliveryDto>>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<IReadOnlyList<NotificationDeliveryDto>>>> GetNotificationDeliveriesAsync(
-        [FromRoute] Guid id,
-        CancellationToken cancellationToken)
-    {
-        var result = await sender.Send(new GetNotificationDeliveriesQuery(id), cancellationToken);
-        return Ok(Success(result, "Notification delivery history retrieved successfully."));
-    }
-
-    [HttpPost("{id:guid}/complete")]
-    [ProducesResponseType(typeof(ApiResponse<object?>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<object?>>> CompleteAsync(
-        [FromRoute] Guid id,
-        CancellationToken cancellationToken)
-    {
-        await sender.Send(new CompleteRegistrationCommand(id), cancellationToken);       
-        return Ok(Success<object?>(null, "Registration completed successfully."));
-    }
-
-    [HttpGet("{id:guid}", Name = nameof(GetByIdAsync))]
-    [ProducesResponseType(typeof(ApiResponse<RegistrationDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<RegistrationDto>>> GetByIdAsync(
-        [FromRoute] Guid id,
-        CancellationToken cancellationToken)
-    {
-        var registration = await sender.Send(new GetRegistrationQuery(id), cancellationToken);
-        return Ok(Success(registration, "Registration retrieved successfully."));
-    }
-
-    private ApiResponse<T> Success<T>(T? data, string message) =>
-        ApiResponse<T>.Ok(data, message, HttpContext.TraceIdentifier);
+ [HttpPost]public async Task<ActionResult<ApiResponse<StartRegistrationResponse>>> Start(StartRegistrationRequest r,CancellationToken ct){var x=await sender.Send(new StartRegistrationCommand(r.Email,r.MobileNumber,r.Type,r.NationalId,r.LegacyCustomerId),ct);return CreatedAtAction(nameof(Get),new{id=x.RegistrationId},Ok(x,"Registration started."));}
+ [HttpPost("{id:guid}/otp/email")]public async Task<ActionResult<ApiResponse<object?>>> SendEmail(Guid id,CancellationToken ct){await sender.Send(new SendOtpCommand(id,OtpChannel.Email),ct);return Accepted(Ok<object?>(null,"Email OTP sent."));}
+ [HttpPost("{id:guid}/otp/sms")]public async Task<ActionResult<ApiResponse<object?>>> SendSms(Guid id,CancellationToken ct){await sender.Send(new SendOtpCommand(id,OtpChannel.Sms),ct);return Accepted(Ok<object?>(null,"SMS OTP sent."));}
+ [HttpPost("{id:guid}/otp/email/verify")]public async Task<ActionResult<ApiResponse<object?>>> VerifyEmail(Guid id,VerifyOtpRequest r,CancellationToken ct){await sender.Send(new VerifyOtpCommand(id,OtpChannel.Email,r.Otp,HttpContext.Connection.RemoteIpAddress?.ToString(),Request.Headers.UserAgent.ToString()),ct);return Ok(Ok<object?>(null,"Email verified."));}
+ [HttpPost("{id:guid}/otp/sms/verify")]public async Task<ActionResult<ApiResponse<object?>>> VerifySms(Guid id,VerifyOtpRequest r,CancellationToken ct){await sender.Send(new VerifyOtpCommand(id,OtpChannel.Sms,r.Otp,HttpContext.Connection.RemoteIpAddress?.ToString(),Request.Headers.UserAgent.ToString()),ct);return Ok(Ok<object?>(null,"Mobile verified."));}
+ [HttpPut("{id:guid}/profile")]public async Task<ActionResult<ApiResponse<object?>>> Profile(Guid id,UpdateProfileRequest r,CancellationToken ct){await sender.Send(new UpdateRegistrationProfileCommand(id,r.FullName,r.NationalId),ct);return Ok(Ok<object?>(null,"Profile updated."));}
+ [HttpPost("{id:guid}/terms/accept")]public async Task<ActionResult<ApiResponse<object?>>> Accept(Guid id,AcceptTermsRequest r,CancellationToken ct){await sender.Send(new AcceptTermsCommand(id,r.TermIds,HttpContext.Connection.RemoteIpAddress?.ToString(),Request.Headers.UserAgent.ToString()),ct);return Ok(Ok<object?>(null,"Terms accepted."));}
+ [HttpPut("{id:guid}/pin")]public async Task<ActionResult<ApiResponse<object?>>> Pin(Guid id,SetPinRequest r,CancellationToken ct){await sender.Send(new SetPinCommand(id,r.Pin,r.ConfirmPin),ct);return Ok(Ok<object?>(null,"PIN configured."));}
+ [HttpPost("{id:guid}/complete")]public async Task<ActionResult<ApiResponse<object?>>> Complete(Guid id,CancellationToken ct){await sender.Send(new CompleteRegistrationCommand(id),ct);return Ok(Ok<object?>(null,"Registration completed."));}
+ [HttpPost("{id:guid}/cancel")]public async Task<ActionResult<ApiResponse<object?>>> Cancel(Guid id,CancelRegistrationRequest r,CancellationToken ct){await sender.Send(new CancelRegistrationCommand(id,r.Reason),ct);return Ok(Ok<object?>(null,"Registration cancelled."));}
+ [HttpGet("{id:guid}")]public async Task<ActionResult<ApiResponse<RegistrationDto>>> Get(Guid id,CancellationToken ct)=>Ok(Ok(await sender.Send(new GetRegistrationQuery(id),ct),"Registration retrieved."));
+ [HttpGet("{id:guid}/notification-deliveries")]public async Task<ActionResult<ApiResponse<IReadOnlyList<NotificationDeliveryDto>>>> Deliveries(Guid id,CancellationToken ct)=>Ok(Ok(await sender.Send(new GetDeliveriesQuery(id),ct),"Deliveries retrieved."));
+ private ApiResponse<T> Ok<T>(T? d,string m)=>ApiResponse<T>.Ok(d,m,HttpContext.TraceIdentifier);
 }

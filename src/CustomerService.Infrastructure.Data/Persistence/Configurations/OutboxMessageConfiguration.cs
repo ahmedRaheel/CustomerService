@@ -5,13 +5,13 @@ namespace CustomerService.Infrastructure.Data.Persistence.Configurations;
 
 public sealed class OutboxMessageConfiguration:IEntityTypeConfiguration<OutboxMessage>
 {
-    public void Configure(EntityTypeBuilder<OutboxMessage>b)
+    public void Configure(EntityTypeBuilder<OutboxMessage> builder)
     {
-        b.ToTable("OutboxMessages","integration");
-        b.HasKey(x=>x.Id);
-        b.Property(x=>x.Destination).HasMaxLength(320);
-        b.Property(x=>x.TemplateCode).HasMaxLength(100);
-        b.Property(x=>x.ProviderMessageId).HasMaxLength(200);
-        b.HasIndex(x=>new{x.Status,x.NextAttemptUtc,x.CreatedUtc});
+        builder.ToTable("OutboxMessages","integration");
+        builder.HasKey(x=>x.Id);
+        builder.Property(x=>x.Destination).HasMaxLength(320);
+        builder.Property(x=>x.TemplateCode).HasMaxLength(100);
+        builder.Property(x=>x.ProviderMessageId).HasMaxLength(200);
+        builder.HasIndex(x=>new{x.Status,x.NextAttemptUtc,x.CreatedUtc});
     }
 }

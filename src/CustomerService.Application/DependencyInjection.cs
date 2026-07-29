@@ -9,6 +9,7 @@ public static class DependencyInjection
     {
         services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(DependencyInjection).Assembly));
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);
+        services.AddScoped<Abstractions.Notifications.INotificationDeliveryService, Notifications.NotificationDeliveryService>();
         services.AddTransient(typeof(IPipelineBehavior<, >), typeof(Abstractions.Behaviors.ValidationBehavior<, >));
         services.AddTransient(typeof(IPipelineBehavior<, >), typeof(Abstractions.Behaviors.LoggingBehavior<, >));
         return services;

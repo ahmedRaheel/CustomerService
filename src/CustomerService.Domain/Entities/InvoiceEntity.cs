@@ -2,12 +2,11 @@ namespace CustomerService.Domain.Entities;
 /// <summary>
 /// Represents the Invoice domain entity.
 /// </summary>
-public sealed class InvoiceEntity
+public sealed class InvoiceEntity : BaseEntity
 {
     /// <summary>
     /// Gets the Id value.
     /// </summary>
-    public Guid Id { get; private set; }
     /// <summary>
     /// Gets the InvoiceNumber value.
     /// </summary>

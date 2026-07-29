@@ -1,8 +1,7 @@
 namespace CustomerService.Domain.Entities;
 
-public sealed class NotificationTemplate
+public sealed class NotificationTemplate : BaseEntity
 {
-    public Guid Id { get; set; }
     public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public NotificationChannel Channel { get; set; }

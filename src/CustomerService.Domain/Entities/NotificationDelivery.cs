@@ -1,16 +1,13 @@
 namespace CustomerService.Domain.Entities;
 
-public sealed class NotificationDelivery
+public sealed class NotificationDelivery : BaseEntity
 {
-    private NotificationDelivery() { }
-
-    public Guid Id { get; private set; }
-    public Guid RegistrationId { get; private set; }
-    public Guid OtpChallengeId { get; private set; }
-    public NotificationChannel Channel { get; private set; }
-    public string Destination { get; private set; } = string.Empty;
-    public string TemplateCode { get; private set; } = string.Empty;
-    public NotificationDeliveryStatus Status { get; private set; }
+    public Guid RegistrationId { get; set; }
+    public Guid? OtpChallengeId { get; set; }
+    public NotificationChannel Channel { get; set; }
+    public string Destination { get; set; } = string.Empty;
+    public string TemplateCode { get; set; } = string.Empty;
+    public DeliveryStatus Status { get; private set; }
     public int AttemptCount { get; private set; }
     public string? ProviderMessageId { get; private set; }
     public string? FailureReason { get; private set; }
@@ -18,53 +15,26 @@ public sealed class NotificationDelivery
     public DateTime? SentUtc { get; private set; }
     public DateTime UpdatedUtc { get; private set; }
 
-    public static NotificationDelivery Create(
-        Guid registrationId,
-        Guid otpChallengeId,
-        NotificationChannel channel,
-        string destination,
-        string templateCode)
-        => new()
-        {
-            Id = Guid.NewGuid(),
-            RegistrationId = registrationId,
-            OtpChallengeId = otpChallengeId,
-            Channel = channel,
-            Destination = destination.Trim(),
-            TemplateCode = templateCode,
-            Status = NotificationDeliveryStatus.Pending,
-            CreatedUtc = DateTime.UtcNow,
-            UpdatedUtc = DateTime.UtcNow
-        };
-
-    public void MarkSending()
+    public static NotificationDelivery Create(Guid registrationId, Guid? otpChallengeId, NotificationChannel channel, string destination, string templateCode)
     {
-        AttemptCount++;
-        Status = NotificationDeliveryStatus.Sending;
-        FailureReason = null;
-        UpdatedUtc = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+        return new NotificationDelivery
+        {
+            Id = Guid.NewGuid(), RegistrationId = registrationId, OtpChallengeId = otpChallengeId, Channel = channel,
+            Destination = destination, TemplateCode = templateCode, Status = DeliveryStatus.Sending, AttemptCount = 1,
+            CreatedUtc = now, UpdatedUtc = now
+        };
     }
 
     public void MarkSent(string? providerMessageId)
     {
-        Status = NotificationDeliveryStatus.Sent;
-        ProviderMessageId = providerMessageId;
-        SentUtc = DateTime.UtcNow;
-        UpdatedUtc = DateTime.UtcNow;
+        ProviderMessageId = providerMessageId; Status = DeliveryStatus.Sent; SentUtc = DateTime.UtcNow; UpdatedUtc = DateTime.UtcNow; FailureReason = null;
     }
 
     public void MarkFailed(string reason)
     {
-        Status = NotificationDeliveryStatus.Failed;
-        FailureReason = string.IsNullOrWhiteSpace(reason) ? "Notification provider failed." : reason[..Math.Min(reason.Length, 2000)];
-        UpdatedUtc = DateTime.UtcNow;
+        Status = DeliveryStatus.Failed; FailureReason = reason; UpdatedUtc = DateTime.UtcNow;
     }
 }
 
-public enum NotificationDeliveryStatus
-{
-    Pending = 1,
-    Sending = 2,
-    Sent = 3,
-    Failed = 4
-}
+public enum DeliveryStatus { Pending = 1, Sending = 2, Sent = 3, Failed = 4, Delivered = 5, Undelivered = 6 }

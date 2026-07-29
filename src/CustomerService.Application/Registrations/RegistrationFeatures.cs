@@ -1,354 +1,49 @@
-using FluentValidation;
-using MediatR;
-using CustomerService.Application.Abstractions.Notifications;
-using CustomerService.Application.Abstractions.Persistence;
-using CustomerService.Domain.Dtos;
-using CustomerService.Domain.Entities;
-using CustomerService.Domain.Exceptions;
-
+using System.Text.RegularExpressions;
+using FluentValidation; using MediatR; using CustomerService.Application.Abstractions.Notifications; using CustomerService.Application.Abstractions.Persistence; using CustomerService.Domain.Dtos; using CustomerService.Domain.Entities; using CustomerService.Domain.Exceptions;
 namespace CustomerService.Application.Registrations;
-
-public sealed record StartRegistrationCommand(
-    string Email,
-    string MobileNumber,
-    RegistrationType Type,
-    string? NationalId) : IRequest<StartRegistrationResponse>;
-
-public sealed class StartRegistrationValidator : AbstractValidator<StartRegistrationCommand>
+public sealed record StartRegistrationCommand(string Email,string MobileNumber,RegistrationType Type,string? NationalId,string? LegacyCustomerId):IRequest<StartRegistrationResponse>;
+public sealed class StartRegistrationValidator:AbstractValidator<StartRegistrationCommand>{public StartRegistrationValidator(){RuleFor(x=>x.Email).NotEmpty().EmailAddress();RuleFor(x=>x.MobileNumber).NotEmpty().MinimumLength(8);When(x=>x.Type==RegistrationType.ExistingCustomerMigration,()=>RuleFor(x=>x.LegacyCustomerId).NotEmpty());}}
+public sealed class StartRegistrationHandler(IRegistrationRepository repo):IRequestHandler<StartRegistrationCommand,StartRegistrationResponse>{public async Task<StartRegistrationResponse> Handle(StartRegistrationCommand r,CancellationToken ct){if(await repo.HasActiveDuplicateAsync(r.Email,r.MobileNumber,r.NationalId,ct))throw new InvalidOperationException("An active or completed registration already exists for the supplied identity.");if(r.Type==RegistrationType.ExistingCustomerMigration&&await repo.GetCustomerByLegacyIdAsync(r.LegacyCustomerId!,ct) is null)throw new NotFoundException("Legacy customer was not found.");var x=RegistrationApplication.Create(r.Email,r.MobileNumber,r.Type,r.NationalId,r.LegacyCustomerId);await repo.AddAsync(x,ct);await repo.AddStepAsync(x.Id,x.CurrentStep,"Completed",ct);await repo.SaveChangesAsync(ct);return new(x.Id,x.Status,x.CurrentStep);}}
+public sealed record SendOtpCommand(Guid RegistrationId,OtpChannel Channel):IRequest;
+public sealed class SendOtpHandler(IRegistrationRepository repo, IOtpService otp, INotificationDeliveryService deliveryService) : IRequestHandler<SendOtpCommand>
 {
-    public StartRegistrationValidator()
+    public async Task Handle(SendOtpCommand r, CancellationToken ct)
     {
-        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(320);
-        RuleFor(x => x.MobileNumber).NotEmpty().MinimumLength(8).MaximumLength(30);
-        RuleFor(x => x.Type).IsInEnum();
-        RuleFor(x => x.NationalId).MaximumLength(100);
+        var reg = await repo.GetAsync(r.RegistrationId, ct) ?? throw new NotFoundException("Registration not found.");
+        var latest = await repo.GetLatestOtpAsync(r.RegistrationId, r.Channel, ct);
+        if (latest is not null && DateTime.UtcNow < latest.NextResendAllowedUtc)
+            throw new InvalidOperationException($"OTP can be resent after {latest.NextResendAllowedUtc:O}.");
+        if (await repo.CountOtpsSinceAsync(r.RegistrationId, r.Channel, DateTime.UtcNow.AddHours(-1), ct) >= 5)
+            throw new InvalidOperationException("OTP hourly limit reached.");
+
+        await repo.InvalidateActiveOtpsAsync(r.RegistrationId, r.Channel, ct);
+        var code = otp.GenerateCode();
+        var hash = otp.Hash(code);
+        var challenge = OtpChallenge.Create(r.RegistrationId, r.Channel, hash.Hash, hash.Salt, 10, 5, 60);
+        await repo.AddOtpAsync(challenge, ct);
+
+        var notificationChannel = r.Channel == OtpChannel.Email ? NotificationChannel.Email : NotificationChannel.Sms;
+        var templateCode = r.Channel == OtpChannel.Email ? "REGISTRATION_EMAIL_OTP" : "REGISTRATION_SMS_OTP";
+        var template = await repo.GetTemplateAsync(templateCode, notificationChannel, ct)
+            ?? throw new InvalidOperationException("Notification template not found.");
+
+        var delivery = await deliveryService.SendOtpAsync(reg, challenge, template, code, ct);
+        await repo.AddStepAsync(reg.Id, r.Channel == OtpChannel.Email ? RegistrationStep.EmailOtpSent : RegistrationStep.SmsOtpSent, delivery.Status.ToString(), ct);
+        await repo.SaveChangesAsync(ct);
     }
 }
-
-public sealed class StartRegistrationHandler(IRegistrationRepository repository)
-    : IRequestHandler<StartRegistrationCommand, StartRegistrationResponse>
-{
-    public async Task<StartRegistrationResponse> Handle(StartRegistrationCommand request, CancellationToken cancellationToken)
-    {
-        var registration = RegistrationApplication.Create(
-            request.Email,
-            request.MobileNumber,
-            request.Type,
-            request.NationalId);
-
-        await repository.AddAsync(registration, cancellationToken);
-        await repository.SaveChangesAsync(cancellationToken);
-
-        return new StartRegistrationResponse(registration.Id, registration.Status);
-    }
-}
-
-public sealed record SendEmailOtpCommand(Guid RegistrationId) : IRequest;
-public sealed record SendSmsOtpCommand(Guid RegistrationId) : IRequest;
-public sealed record VerifyBothOtpsCommand(Guid RegistrationId, string EmailOtp, string SmsOtp) : IRequest;
-public sealed record UpdateRegistrationProfileCommand(Guid RegistrationId, string FullName, string? NationalId) : IRequest;
-public sealed record SetRegistrationPinCommand(Guid RegistrationId, string Pin, string ConfirmPin) : IRequest<SetPinResponse>;
-public sealed record CompleteRegistrationCommand(Guid RegistrationId) : IRequest;
-public sealed record GetRegistrationQuery(Guid RegistrationId) : IRequest<RegistrationDto>;
-public sealed record GetNotificationDeliveriesQuery(Guid RegistrationId) : IRequest<IReadOnlyList<NotificationDeliveryDto>>;
-
-public sealed class VerifyBothOtpsValidator : AbstractValidator<VerifyBothOtpsCommand>
-{
-    public VerifyBothOtpsValidator()
-    {
-        RuleFor(x => x.EmailOtp).Matches("^[0-9]{6}$");
-        RuleFor(x => x.SmsOtp).Matches("^[0-9]{6}$");
-    }
-}
-
-public sealed class UpdateRegistrationProfileValidator : AbstractValidator<UpdateRegistrationProfileCommand>
-{
-    public UpdateRegistrationProfileValidator()
-    {
-        RuleFor(x => x.FullName).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.NationalId).MaximumLength(100);
-    }
-}
-
-public sealed class SetRegistrationPinValidator : AbstractValidator<SetRegistrationPinCommand>
-{
-    public SetRegistrationPinValidator()
-    {
-        RuleFor(x => x.Pin)
-            .NotEmpty()
-            .Matches("^[0-9]{6}$")
-            .WithMessage("PIN must contain exactly six digits.");
-
-        RuleFor(x => x.ConfirmPin)
-            .Equal(x => x.Pin)
-            .WithMessage("PIN and confirmation PIN must match.");
-    }
-}
-
-internal static class OtpCommandSupport
-{
-    private const int ExpiryMinutes = 10;
-    private const int MaxVerificationAttempts = 5;
-
-    public static async Task SendAsync(
-        Guid registrationId,
-        OtpChannel otpChannel,
-        IRegistrationRepository repository,
-        IOtpService otpService,
-        IEmailSender emailSender,
-        ISmsSender smsSender,
-        CancellationToken cancellationToken)
-    {
-        var registration = await repository.GetAsync(registrationId, cancellationToken)
-            ?? throw new NotFoundException($"Registration {registrationId} was not found.");
-
-        var notificationChannel = otpChannel == OtpChannel.Email
-            ? NotificationChannel.Email
-            : NotificationChannel.Sms;
-        var templateCode = otpChannel == OtpChannel.Email
-            ? "REGISTRATION_EMAIL_OTP"
-            : "REGISTRATION_SMS_OTP";
-        var destination = otpChannel == OtpChannel.Email
-            ? registration.Email
-            : registration.MobileNumber;
-
-        var template = await repository.GetTemplateAsync(templateCode, notificationChannel, cancellationToken)
-            ?? throw new InvalidOperationException($"Active notification template '{templateCode}' was not found.");
-
-        var code = otpService.GenerateCode();
-        var securedCode = otpService.Hash(code);
-        var challenge = OtpChallenge.Create(
-            registrationId,
-            otpChannel,
-            securedCode.Hash,
-            securedCode.Salt,
-            ExpiryMinutes,
-            MaxVerificationAttempts);
-
-        var delivery = NotificationDelivery.Create(
-            registrationId,
-            challenge.Id,
-            notificationChannel,
-            destination,
-            templateCode);
-
-        await repository.AddOtpAsync(challenge, cancellationToken);
-        await repository.AddNotificationDeliveryAsync(delivery, cancellationToken);
-        await repository.SaveChangesAsync(cancellationToken);
-
-        var variables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["OtpCode"] = code,
-            ["FullName"] = registration.FullName ?? "Customer",
-            ["ExpiryMinutes"] = ExpiryMinutes.ToString()
-        };
-
-        var subject = TemplateRenderer.Render(template.SubjectTemplate ?? template.Name, variables);
-        var body = TemplateRenderer.Render(template.BodyTemplate, variables);
-
-        delivery.MarkSending();
-        await repository.SaveChangesAsync(cancellationToken);
-
-        try
-        {
-            var providerMessageId = notificationChannel == NotificationChannel.Email
-                ? await emailSender.SendAsync(destination, subject, body, template.IsHtml, cancellationToken)
-                : await smsSender.SendAsync(destination, body, cancellationToken);
-
-            delivery.MarkSent(providerMessageId);
-            await repository.SaveChangesAsync(cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            delivery.MarkFailed(exception.Message);
-            await repository.SaveChangesAsync(cancellationToken);
-            throw new InvalidOperationException($"Failed to send {notificationChannel} OTP.", exception);
-        }
-    }
-}
-
-internal static class TemplateRenderer
-{
-    public static string Render(string template, IReadOnlyDictionary<string, string> variables)
-    {
-        var rendered = template;
-        foreach (var variable in variables)
-            rendered = rendered.Replace($"{{{{{variable.Key}}}}}", variable.Value, StringComparison.OrdinalIgnoreCase);
-
-        return rendered;
-    }
-}
-
-public sealed class SendEmailOtpHandler(
-    IRegistrationRepository repository,
-    IOtpService otpService,
-    IEmailSender emailSender,
-    ISmsSender smsSender)
-    : IRequestHandler<SendEmailOtpCommand>
-{
-    public Task Handle(SendEmailOtpCommand request, CancellationToken cancellationToken)
-        => OtpCommandSupport.SendAsync(
-            request.RegistrationId,
-            OtpChannel.Email,
-            repository,
-            otpService,
-            emailSender,
-            smsSender,
-            cancellationToken);
-}
-
-public sealed class SendSmsOtpHandler(
-    IRegistrationRepository repository,
-    IOtpService otpService,
-    IEmailSender emailSender,
-    ISmsSender smsSender)
-    : IRequestHandler<SendSmsOtpCommand>
-{
-    public Task Handle(SendSmsOtpCommand request, CancellationToken cancellationToken)
-        => OtpCommandSupport.SendAsync(
-            request.RegistrationId,
-            OtpChannel.Sms,
-            repository,
-            otpService,
-            emailSender,
-            smsSender,
-            cancellationToken);
-}
-
-public sealed class VerifyBothOtpsHandler(IRegistrationRepository repository, IOtpService otpService)
-    : IRequestHandler<VerifyBothOtpsCommand>
-{
-    public async Task Handle(VerifyBothOtpsCommand request, CancellationToken cancellationToken)
-    {
-        var registration = await repository.GetAsync(request.RegistrationId, cancellationToken)
-            ?? throw new NotFoundException($"Registration {request.RegistrationId} was not found.");
-
-        var emailOtp = await repository.GetLatestOtpAsync(request.RegistrationId, OtpChannel.Email, cancellationToken)
-            ?? throw new InvalidOperationException("Email OTP was not found.");
-        var smsOtp = await repository.GetLatestOtpAsync(request.RegistrationId, OtpChannel.Sms, cancellationToken)
-            ?? throw new InvalidOperationException("SMS OTP was not found.");
-
-        var emailIsValid = IsValid(emailOtp, request.EmailOtp, otpService);
-        var smsIsValid = IsValid(smsOtp, request.SmsOtp, otpService);
-
-        if (!emailIsValid)
-            emailOtp.RecordFailedAttempt();
-        if (!smsIsValid)
-            smsOtp.RecordFailedAttempt();
-
-        if (!emailIsValid || !smsIsValid)
-        {
-            await repository.SaveChangesAsync(cancellationToken);
-            throw new InvalidOperationException(BuildOtpError(emailIsValid, smsIsValid));
-        }
-
-        emailOtp.MarkVerified();
-        smsOtp.MarkVerified();
-        registration.MarkEmailVerified();
-        registration.MarkSmsVerified();
-
-        await repository.SaveChangesAsync(cancellationToken);
-    }
-
-    private static bool IsValid(OtpChallenge challenge, string code, IOtpService otpService)
-        => challenge.CanVerify && otpService.Verify(code, challenge.CodeHash, challenge.Salt);
-
-    private static string BuildOtpError(bool emailIsValid, bool smsIsValid)
-    {
-        if (!emailIsValid && !smsIsValid)
-            return "Invalid or expired email and SMS OTPs.";
-        return emailIsValid ? "Invalid or expired SMS OTP." : "Invalid or expired email OTP.";
-    }
-}
-
-public sealed class UpdateRegistrationProfileHandler(IRegistrationRepository repository)
-    : IRequestHandler<UpdateRegistrationProfileCommand>
-{
-    public async Task Handle(UpdateRegistrationProfileCommand request, CancellationToken cancellationToken)
-    {
-        var registration = await repository.GetAsync(request.RegistrationId, cancellationToken)
-            ?? throw new NotFoundException($"Registration {request.RegistrationId} was not found.");
-
-        registration.UpdateProfile(request.FullName, request.NationalId);
-        await repository.SaveChangesAsync(cancellationToken);
-    }
-}
-
-public sealed class SetRegistrationPinHandler(IRegistrationRepository repository, IPinHasher pinHasher)
-    : IRequestHandler<SetRegistrationPinCommand, SetPinResponse>
-{
-    public async Task<SetPinResponse> Handle(SetRegistrationPinCommand request, CancellationToken cancellationToken)
-    {
-        var registration = await repository.GetAsync(request.RegistrationId, cancellationToken)
-            ?? throw new NotFoundException($"Registration {request.RegistrationId} was not found.");
-
-        var securedPin = pinHasher.Hash(request.Pin);
-        registration.SetPin(securedPin.Hash, securedPin.Salt);
-        await repository.SaveChangesAsync(cancellationToken);
-
-        return new SetPinResponse(registration.Id, registration.HasPin, registration.PinSetUtc!.Value);
-    }
-}
-
-public sealed class CompleteRegistrationHandler(IRegistrationRepository repository)
-    : IRequestHandler<CompleteRegistrationCommand>
-{
-    public async Task Handle(CompleteRegistrationCommand request, CancellationToken cancellationToken)
-    {
-        var registration = await repository.GetAsync(request.RegistrationId, cancellationToken)
-            ?? throw new NotFoundException($"Registration {request.RegistrationId} was not found.");
-
-        registration.Complete();
-        await repository.SaveChangesAsync(cancellationToken);
-    }
-}
-
-public sealed class GetRegistrationHandler(IRegistrationRepository repository)
-    : IRequestHandler<GetRegistrationQuery, RegistrationDto>
-{
-    public async Task<RegistrationDto> Handle(GetRegistrationQuery request, CancellationToken cancellationToken)
-    {
-        var registration = await repository.GetAsync(request.RegistrationId, cancellationToken)
-            ?? throw new NotFoundException($"Registration {request.RegistrationId} was not found.");
-
-        return new RegistrationDto(
-            registration.Id,
-            registration.Type,
-            registration.Status,
-            registration.Email,
-            registration.MobileNumber,
-            registration.NationalId,
-            registration.FullName,
-            registration.EmailVerified,
-            registration.SmsVerified,
-            registration.HasPin,
-            registration.PinSetUtc,
-            registration.CreatedUtc,
-            registration.UpdatedUtc);
-    }
-}
-
-public sealed class GetNotificationDeliveriesHandler(IRegistrationRepository repository)
-    : IRequestHandler<GetNotificationDeliveriesQuery, IReadOnlyList<NotificationDeliveryDto>>
-{
-    public async Task<IReadOnlyList<NotificationDeliveryDto>> Handle(
-        GetNotificationDeliveriesQuery request,
-        CancellationToken cancellationToken)
-    {
-        _ = await repository.GetAsync(request.RegistrationId, cancellationToken)
-            ?? throw new NotFoundException($"Registration {request.RegistrationId} was not found.");
-
-        var deliveries = await repository.GetNotificationDeliveriesAsync(request.RegistrationId, cancellationToken);
-        return deliveries.Select(x => new NotificationDeliveryDto(
-            x.Id,
-            x.Channel,
-            x.Destination,
-            x.TemplateCode,
-            x.Status,
-            x.AttemptCount,
-            x.ProviderMessageId,
-            x.FailureReason,
-            x.CreatedUtc,
-            x.SentUtc)).ToList();
-    }
-}
+public sealed record VerifyOtpCommand(Guid RegistrationId,OtpChannel Channel,string Otp,string? IpAddress,string? UserAgent):IRequest;
+public sealed class VerifyOtpValidator:AbstractValidator<VerifyOtpCommand>{public VerifyOtpValidator()=>RuleFor(x=>x.Otp).Matches("^[0-9]{6}$");}
+public sealed class VerifyOtpHandler(IRegistrationRepository repo,IOtpService otp):IRequestHandler<VerifyOtpCommand>{public async Task Handle(VerifyOtpCommand r,CancellationToken ct){var reg=await repo.GetAsync(r.RegistrationId,ct)??throw new NotFoundException("Registration not found.");var ch=await repo.GetLatestOtpAsync(r.RegistrationId,r.Channel,ct)??throw new InvalidOperationException("OTP not found.");var ok=ch.CanVerify&&otp.Verify(r.Otp,ch.CodeHash,ch.Salt);await repo.AddVerificationAttemptAsync(new(){Id=Guid.NewGuid(),OtpChallengeId=ch.Id,WasSuccessful=ok,FailureReason=ok?null:"Invalid, expired, used or locked OTP.",IpAddress=r.IpAddress,UserAgent=r.UserAgent,SubmittedUtc=DateTime.UtcNow},ct);if(!ok){ch.RecordFailedAttempt();await repo.SaveChangesAsync(ct);throw new InvalidOperationException("Invalid or expired OTP.");}ch.MarkVerified();if(r.Channel==OtpChannel.Email)reg.MarkEmailVerified();else reg.MarkSmsVerified();await repo.AddStepAsync(reg.Id,r.Channel==OtpChannel.Email?RegistrationStep.EmailVerified:RegistrationStep.SmsVerified,"Completed",ct);await repo.SaveChangesAsync(ct);}}
+public sealed record UpdateRegistrationProfileCommand(Guid Id,string FullName,string? NationalId):IRequest;
+public sealed class UpdateRegistrationProfileHandler(IRegistrationRepository repo):IRequestHandler<UpdateRegistrationProfileCommand>{public async Task Handle(UpdateRegistrationProfileCommand r,CancellationToken ct){var x=await repo.GetAsync(r.Id,ct)??throw new NotFoundException("Registration not found.");x.UpdateProfile(r.FullName,r.NationalId);await repo.AddStepAsync(x.Id,RegistrationStep.ProfileCompleted,"Completed",ct);await repo.SaveChangesAsync(ct);}}
+public sealed record AcceptTermsCommand(Guid Id,IReadOnlyCollection<Guid> TermIds,string? Ip,string? UserAgent):IRequest;
+public sealed class AcceptTermsHandler(IRegistrationRepository repo):IRequestHandler<AcceptTermsCommand>{public async Task Handle(AcceptTermsCommand r,CancellationToken ct){var x=await repo.GetAsync(r.Id,ct)??throw new NotFoundException("Registration not found.");var active=await repo.GetActiveTermsAsync(ct);var required=active.Where(t=>t.IsRequired).Select(t=>t.Id).ToHashSet();if(!required.IsSubsetOf(r.TermIds))throw new InvalidOperationException("All required terms must be accepted.");foreach(var id in r.TermIds.Distinct()){var t=active.SingleOrDefault(a=>a.Id==id)??throw new InvalidOperationException("An invalid or inactive term was supplied.");await repo.AddConsentAsync(new(){Id=Guid.NewGuid(),RegistrationId=x.Id,TermDocumentId=t.Id,TermVersion=t.Version,Accepted=true,AcceptedUtc=DateTime.UtcNow,IpAddress=r.Ip,UserAgent=r.UserAgent},ct);}x.MarkTermsAccepted();await repo.AddStepAsync(x.Id,RegistrationStep.TermsAccepted,"Completed",ct);await repo.SaveChangesAsync(ct);}}
+public sealed record SetPinCommand(Guid Id,string Pin,string ConfirmPin):IRequest;
+public sealed class SetPinValidator:AbstractValidator<SetPinCommand>{public SetPinValidator(){RuleFor(x=>x.Pin).Matches("^[0-9]{6}$");RuleFor(x=>x.ConfirmPin).Equal(x=>x.Pin);}}
+public sealed class SetPinHandler(IRegistrationRepository repo,IPinService pins):IRequestHandler<SetPinCommand>{public async Task Handle(SetPinCommand r,CancellationToken ct){var x=await repo.GetAsync(r.Id,ct)??throw new NotFoundException("Registration not found.");var h=pins.Hash(r.Pin);x.SetPin(h.Hash,h.Salt);await repo.AddStepAsync(x.Id,RegistrationStep.PinConfigured,"Completed",ct);await repo.SaveChangesAsync(ct);}}
+public sealed record CompleteRegistrationCommand(Guid Id):IRequest;
+public sealed class CompleteRegistrationHandler(IRegistrationRepository repo):IRequestHandler<CompleteRegistrationCommand>{public async Task Handle(CompleteRegistrationCommand r,CancellationToken ct){var x=await repo.GetAsync(r.Id,ct)??throw new NotFoundException("Registration not found.");if(!await repo.HasAcceptedRequiredTermsAsync(x.Id,ct))throw new InvalidOperationException("Required terms are not accepted.");x.Complete();await repo.AddCustomerAsync(new(){Id=Guid.NewGuid(),RegistrationId=x.Id,Email=x.Email,MobileNumber=x.MobileNumber,NationalId=x.NationalId,FullName=x.FullName,LegacyCustomerId=x.LegacyCustomerId,IsMigrated=x.Type==RegistrationType.ExistingCustomerMigration,CreatedUtc=DateTime.UtcNow},ct);await repo.AddStepAsync(x.Id,RegistrationStep.Completed,"Completed",ct);await repo.SaveChangesAsync(ct);}}
+public sealed record CancelRegistrationCommand(Guid Id,string Reason):IRequest;public sealed class CancelRegistrationHandler(IRegistrationRepository repo):IRequestHandler<CancelRegistrationCommand>{public async Task Handle(CancelRegistrationCommand r,CancellationToken ct){var x=await repo.GetAsync(r.Id,ct)??throw new NotFoundException("Registration not found.");x.Cancel(r.Reason);await repo.SaveChangesAsync(ct);}}
+public sealed record GetRegistrationQuery(Guid Id):IRequest<RegistrationDto>;public sealed class GetRegistrationHandler(IRegistrationRepository repo):IRequestHandler<GetRegistrationQuery,RegistrationDto>{public async Task<RegistrationDto> Handle(GetRegistrationQuery r,CancellationToken ct){var x=await repo.GetAsync(r.Id,ct)??throw new NotFoundException("Registration not found.");return new(x.Id,x.Type,x.Status,x.CurrentStep,x.Email,x.MobileNumber,x.NationalId,x.FullName,x.LegacyCustomerId,x.EmailVerified,x.SmsVerified,x.PinSetUtc is not null,x.ExpiresUtc,x.CreatedUtc,x.UpdatedUtc);}}
+public sealed record GetDeliveriesQuery(Guid Id):IRequest<IReadOnlyList<NotificationDeliveryDto>>;public sealed class GetDeliveriesHandler(IRegistrationRepository repo):IRequestHandler<GetDeliveriesQuery,IReadOnlyList<NotificationDeliveryDto>>{public async Task<IReadOnlyList<NotificationDeliveryDto>> Handle(GetDeliveriesQuery r,CancellationToken ct)=>(await repo.GetDeliveriesAsync(r.Id,ct)).Select(x=>new NotificationDeliveryDto(x.Id,x.Channel,x.Destination,x.TemplateCode,x.Status,x.AttemptCount,x.ProviderMessageId,x.FailureReason,x.CreatedUtc,x.SentUtc)).ToList();}
