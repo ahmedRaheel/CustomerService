@@ -1,24 +1,333 @@
-using CustomerService.Application.Abstractions.Persistence;using CustomerService.Domain.Entities;using CustomerService.Infrastructure.Data.Persistence.Context;using Microsoft.EntityFrameworkCore;
+using CustomerService.Application.Abstractions.Persistence;
+using CustomerService.Domain.Entities;
+using CustomerService.Infrastructure.Data.Persistence.Context;
+using Microsoft.EntityFrameworkCore;
+
 namespace CustomerService.Infrastructure.Data.Commands;
-public sealed class RegistrationRepository(ApplicationDbContext db):IRegistrationRepository
+
+public sealed class RegistrationRepository(
+    ApplicationDbContext dbContext)
+    : IRegistrationRepository
 {
- public Task<RegistrationApplication?> GetAsync(Guid id,CancellationToken ct)=>db.RegistrationApplications.SingleOrDefaultAsync(x=>x.Id==id,ct);
- public async Task AddAsync(RegistrationApplication x,CancellationToken ct)=>await db.RegistrationApplications.AddAsync(x,ct);
- public Task<bool> HasActiveDuplicateAsync(string email,string mobile,string? nationalId,CancellationToken ct){var ne=email.Trim().ToUpperInvariant();var nm=new string(mobile.Where(char.IsDigit).ToArray());return db.RegistrationApplications.AnyAsync(x=>(x.NormalizedEmail==ne||x.NormalizedMobileNumber==nm||(nationalId!=null&&x.NationalId==nationalId))&&x.Status!=RegistrationStatus.Cancelled&&x.Status!=RegistrationStatus.Expired,ct);}
- public Task<OtpChallenge?> GetLatestOtpAsync(Guid id,OtpChannel c,CancellationToken ct)=>db.OtpChallenges.Where(x=>x.RegistrationId==id&&x.Channel==c).OrderByDescending(x=>x.CreatedUtc).FirstOrDefaultAsync(ct);
- public async Task AddOtpAsync(OtpChallenge x,CancellationToken ct)=>await db.OtpChallenges.AddAsync(x,ct);
- public async Task InvalidateActiveOtpsAsync(Guid id,OtpChannel c,CancellationToken ct){var rows=await db.OtpChallenges.Where(x=>x.RegistrationId==id&&x.Channel==c&&x.VerifiedUtc==null&&x.InvalidatedUtc==null).ToListAsync(ct);foreach(var x in rows)x.Invalidate();}
- public Task<int> CountOtpsSinceAsync(Guid id,OtpChannel c,DateTime since,CancellationToken ct)=>db.OtpChallenges.CountAsync(x=>x.RegistrationId==id&&x.Channel==c&&x.CreatedUtc>=since,ct);
- public Task<NotificationTemplate?> GetTemplateAsync(string code,NotificationChannel c,CancellationToken ct)=>db.NotificationTemplates.Where(x=>x.Code==code&&x.Channel==c&&x.IsActive).OrderByDescending(x=>x.Version).FirstOrDefaultAsync(ct);
- public async Task AddDeliveryAsync(NotificationDelivery x,CancellationToken ct)=>await db.NotificationDeliveries.AddAsync(x,ct);
- public async Task<IReadOnlyList<NotificationDelivery>> GetDeliveriesAsync(Guid id,CancellationToken ct)=>await db.NotificationDeliveries.Where(x=>x.RegistrationId==id).OrderByDescending(x=>x.CreatedUtc).ToListAsync(ct);
- public async Task AddVerificationAttemptAsync(OtpVerificationAttempt x,CancellationToken ct)=>await db.OtpVerificationAttempts.AddAsync(x,ct);
- public async Task<IReadOnlyList<TermDocument>> GetActiveTermsAsync(CancellationToken ct){var now=DateTime.UtcNow;return await db.TermDocuments.Where(x=>x.IsActive&&x.EffectiveFromUtc<=now&&(x.EffectiveToUtc==null||x.EffectiveToUtc>now)).OrderBy(x=>x.Code).ToListAsync(ct);}
- public Task<TermDocument?> GetTermAsync(Guid id,CancellationToken ct)=>db.TermDocuments.SingleOrDefaultAsync(x=>x.Id==id&&x.IsActive,ct);
- public async Task<bool> HasAcceptedRequiredTermsAsync(Guid id,CancellationToken ct){var now=DateTime.UtcNow;var required=await db.TermDocuments.Where(x=>x.IsRequired&&x.IsActive&&x.EffectiveFromUtc<=now&&(x.EffectiveToUtc==null||x.EffectiveToUtc>now)).Select(x=>new{x.Id,x.Version}).ToListAsync(ct);var accepted=await db.RegistrationConsents.Where(x=>x.RegistrationId==id&&x.Accepted).Select(x=>new{x.TermDocumentId,x.TermVersion}).ToListAsync(ct);return required.All(r=>accepted.Any(a=>a.TermDocumentId==r.Id&&a.TermVersion==r.Version));}
- public async Task AddConsentAsync(RegistrationConsent x,CancellationToken ct){if(!await db.RegistrationConsents.AnyAsync(c=>c.RegistrationId==x.RegistrationId&&c.TermDocumentId==x.TermDocumentId&&c.TermVersion==x.TermVersion,ct))await db.RegistrationConsents.AddAsync(x,ct);}
- public async Task AddStepAsync(Guid id,RegistrationStep step,string status,CancellationToken ct)=>await db.RegistrationStepHistories.AddAsync(new(){Id=Guid.NewGuid(),RegistrationId=id,Step=step,Status=status,OccurredUtc=DateTime.UtcNow},ct);
- public Task<CustomerAccount?> GetCustomerByLegacyIdAsync(string legacyId,CancellationToken ct)=>db.CustomerAccounts.SingleOrDefaultAsync(x=>x.LegacyCustomerId==legacyId,ct);
- public async Task AddCustomerAsync(CustomerAccount x,CancellationToken ct){if(!await db.CustomerAccounts.AnyAsync(c=>c.RegistrationId==x.RegistrationId,ct))await db.CustomerAccounts.AddAsync(x,ct);}
- public Task<int> SaveChangesAsync(CancellationToken ct)=>db.SaveChangesAsync(ct);
+    public Task<RegistrationApplication?> GetAsync(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.RegistrationApplications
+            .SingleOrDefaultAsync(
+                registration => registration.Id == id,
+                cancellationToken);
+    }
+
+    public async Task AddAsync(
+        RegistrationApplication registration,
+        CancellationToken cancellationToken)
+    {
+        await dbContext.RegistrationApplications.AddAsync(
+            registration,
+            cancellationToken);
+    }
+
+    public Task<bool> HasActiveDuplicateAsync(
+        string email,
+        string mobileNumber,
+        string? nationalId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedEmail = NormalizeEmail(email);
+        var normalizedMobileNumber = NormalizeMobileNumber(mobileNumber);
+        var normalizedNationalId = NormalizeOptionalValue(nationalId);
+
+        return dbContext.RegistrationApplications
+            .AnyAsync(
+                registration =>
+                    (
+                        registration.NormalizedEmail == normalizedEmail
+                        || registration.NormalizedMobileNumber == normalizedMobileNumber
+                        || (
+                            normalizedNationalId != null
+                            && registration.NationalId == normalizedNationalId
+                        )
+                    )
+                    && registration.Status != RegistrationStatus.Cancelled
+                    && registration.Status != RegistrationStatus.Expired,
+                cancellationToken);
+    }
+
+    public Task<OtpChallenge?> GetLatestOtpAsync(
+        Guid registrationId,
+        OtpChannel channel,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.OtpChallenges
+            .Where(otp =>
+                otp.RegistrationId == registrationId
+                && otp.Channel == channel)
+            .OrderByDescending(otp => otp.CreatedUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task AddOtpAsync(
+        OtpChallenge otpChallenge,
+        CancellationToken cancellationToken)
+    {
+        await dbContext.OtpChallenges.AddAsync(
+            otpChallenge,
+            cancellationToken);
+    }
+
+    public async Task InvalidateActiveOtpsAsync(
+        Guid registrationId,
+        OtpChannel channel,
+        CancellationToken cancellationToken)
+    {
+        var activeOtpChallenges = await dbContext.OtpChallenges
+            .Where(otp =>
+                otp.RegistrationId == registrationId
+                && otp.Channel == channel
+                && otp.VerifiedUtc == null
+                && otp.InvalidatedUtc == null)
+            .ToListAsync(cancellationToken);
+
+        foreach (var otpChallenge in activeOtpChallenges)
+        {
+            otpChallenge.Invalidate();
+        }
+    }
+
+    public Task<int> CountOtpsSinceAsync(
+        Guid registrationId,
+        OtpChannel channel,
+        DateTime sinceUtc,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.OtpChallenges
+            .CountAsync(
+                otp =>
+                    otp.RegistrationId == registrationId
+                    && otp.Channel == channel
+                    && otp.CreatedUtc >= sinceUtc,
+                cancellationToken);
+    }
+
+    public Task<NotificationTemplate?> GetTemplateAsync(
+        string code,
+        NotificationChannel channel,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.NotificationTemplates
+            .Where(template =>
+                template.Code == code
+                && template.Channel == channel
+                && template.IsActive)
+            .OrderByDescending(template => template.Version)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task AddDeliveryAsync(
+        NotificationDelivery notificationDelivery,
+        CancellationToken cancellationToken)
+    {
+        await dbContext.NotificationDeliveries.AddAsync(
+            notificationDelivery,
+            cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<NotificationDelivery>> GetDeliveriesAsync(
+        Guid registrationId,
+        CancellationToken cancellationToken)
+    {
+        return await dbContext.NotificationDeliveries
+            .AsNoTracking()
+            .Where(delivery => delivery.RegistrationId == registrationId)
+            .OrderByDescending(delivery => delivery.CreatedUtc)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task AddVerificationAttemptAsync(
+        OtpVerificationAttempt verificationAttempt,
+        CancellationToken cancellationToken)
+    {
+        await dbContext.OtpVerificationAttempts.AddAsync(
+            verificationAttempt,
+            cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<TermDocument>> GetActiveTermsAsync(
+        CancellationToken cancellationToken)
+    {
+        var utcNow = DateTime.UtcNow;
+
+        return await dbContext.TermDocuments
+            .AsNoTracking()
+            .Where(term =>
+                term.IsActive
+                && term.EffectiveFromUtc <= utcNow
+                && (
+                    term.EffectiveToUtc == null
+                    || term.EffectiveToUtc > utcNow
+                ))
+            .OrderBy(term => term.Code)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<TermDocument?> GetTermAsync(
+        Guid termDocumentId,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.TermDocuments
+            .AsNoTracking()
+            .SingleOrDefaultAsync(
+                term =>
+                    term.Id == termDocumentId
+                    && term.IsActive,
+                cancellationToken);
+    }
+
+    public async Task<bool> HasAcceptedRequiredTermsAsync(
+        Guid registrationId,
+        CancellationToken cancellationToken)
+    {
+        var utcNow = DateTime.UtcNow;
+
+        var requiredTerms = await dbContext.TermDocuments
+            .AsNoTracking()
+            .Where(term =>
+                term.IsRequired
+                && term.IsActive
+                && term.EffectiveFromUtc <= utcNow
+                && (
+                    term.EffectiveToUtc == null
+                    || term.EffectiveToUtc > utcNow
+                ))
+            .Select(term => new
+            {
+                TermDocumentId = term.Id,
+                term.Version
+            })
+            .ToListAsync(cancellationToken);
+
+        if (requiredTerms.Count == 0)
+        {
+            return true;
+        }
+
+        var acceptedTerms = await dbContext.RegistrationConsents
+            .AsNoTracking()
+            .Where(consent =>
+                consent.RegistrationId == registrationId
+                && consent.Accepted)
+            .Select(consent => new
+            {
+                consent.TermDocumentId,
+                Version = consent.TermVersion
+            })
+            .ToListAsync(cancellationToken);
+
+        return requiredTerms.All(requiredTerm =>
+            acceptedTerms.Any(acceptedTerm =>
+                acceptedTerm.TermDocumentId == requiredTerm.TermDocumentId
+                && acceptedTerm.Version == requiredTerm.Version));
+    }
+
+    public async Task AddConsentAsync(
+        RegistrationConsent consent,
+        CancellationToken cancellationToken)
+    {
+        var consentExists = await dbContext.RegistrationConsents
+            .AnyAsync(
+                existingConsent =>
+                    existingConsent.RegistrationId == consent.RegistrationId
+                    && existingConsent.TermDocumentId == consent.TermDocumentId
+                    && existingConsent.TermVersion == consent.TermVersion,
+                cancellationToken);
+
+        if (consentExists)
+        {
+            return;
+        }
+
+        await dbContext.RegistrationConsents.AddAsync(
+            consent,
+            cancellationToken);
+    }
+
+    public async Task AddStepAsync(
+        Guid registrationId,
+        RegistrationStep step,
+        string status,
+        CancellationToken cancellationToken)
+    {
+        var stepHistory = new RegistrationStepHistory
+        {
+            Id = Guid.NewGuid(),
+            RegistrationId = registrationId,
+            Step = step,
+            Status = status,
+            OccurredUtc = DateTime.UtcNow
+        };
+
+        await dbContext.RegistrationStepHistories.AddAsync(
+            stepHistory,
+            cancellationToken);
+    }
+
+    public Task<CustomerAccount?> GetCustomerByLegacyIdAsync(
+        string legacyCustomerId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedLegacyCustomerId = legacyCustomerId.Trim();
+
+        return dbContext.CustomerAccounts
+            .SingleOrDefaultAsync(
+                customer =>
+                    customer.LegacyCustomerId == normalizedLegacyCustomerId,
+                cancellationToken);
+    }
+
+    public async Task AddCustomerAsync(
+        CustomerAccount customerAccount,
+        CancellationToken cancellationToken)
+    {
+        var customerExists = await dbContext.CustomerAccounts
+            .AnyAsync(
+                customer =>
+                    customer.RegistrationId == customerAccount.RegistrationId,
+                cancellationToken);
+
+        if (customerExists)
+        {
+            return;
+        }
+
+        await dbContext.CustomerAccounts.AddAsync(
+            customerAccount,
+            cancellationToken);
+    }
+
+    public Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken)
+    {
+        return dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static string NormalizeEmail(string email)
+    {
+        return email.Trim().ToUpperInvariant();
+    }
+
+    private static string NormalizeMobileNumber(string mobileNumber)
+    {
+        return new string(
+            mobileNumber
+                .Where(char.IsDigit)
+                .ToArray());
+    }
+
+    private static string? NormalizeOptionalValue(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Trim();
+    }
 }
