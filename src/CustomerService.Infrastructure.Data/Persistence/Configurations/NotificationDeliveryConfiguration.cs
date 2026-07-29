@@ -8,6 +8,6 @@ public sealed class NotificationDeliveryConfiguration : IEntityTypeConfiguration
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Destination).HasMaxLength(320);
         builder.Property(x => x.FailureReason).HasMaxLength(2000);
-        b.HasIndex(x => new { x.RegistrationId, x.CreatedUtc });
+        builder.HasIndex(x => new { x.RegistrationId, x.CreatedUtc });
     }
 }
