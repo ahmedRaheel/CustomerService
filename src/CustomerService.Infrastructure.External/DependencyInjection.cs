@@ -1,4 +1,8 @@
-using CustomerService.Application.Abstractions.Notifications;using CustomerService.Infrastructure.External.Notifications;using CustomerService.Infrastructure.External.Options;using Microsoft.Extensions.Configuration;using Microsoft.Extensions.DependencyInjection;
+using CustomerService.Application.Abstractions.Notifications;
+using CustomerService.Infrastructure.External.Notifications;
+using CustomerService.Infrastructure.External.Options;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 namespace CustomerService.Infrastructure.External;
 public static class DependencyInjection
 {

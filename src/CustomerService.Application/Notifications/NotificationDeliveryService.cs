@@ -67,7 +67,7 @@ public sealed class NotificationDeliveryService(
     {
         return template
             .Replace("{{OtpCode}}", code)
-            .Replace("{{FullName}}", registration.FullName ?? "Customer")
+            .Replace(TemplateTokens.FullName, registration.FullName ?? TemplateTokens.DefaultCustomerName)
             .Replace("{{ExpiryMinutes}}", "10");
     }
 }

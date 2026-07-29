@@ -2,6 +2,7 @@ using CustomerService.Api.Extensions;
 using CustomerService.Application.Otp;
 using CustomerService.Domain.Dtos;
 using CustomerService.Domain.Entities;
+using CustomerService.Domain.Enums;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 

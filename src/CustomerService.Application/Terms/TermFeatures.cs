@@ -30,7 +30,7 @@ public sealed class GetActiveTermsHandler(IRegistrationQueryRepository queryRepo
 
         return Result.Success<IReadOnlyList<TermDocumentDto>>(
             response,
-            "Terms retrieved.");
+            ResultMessages.TermsRetrieved);
     }
 }
 
@@ -54,7 +54,7 @@ public sealed class GetTermHandler(IRegistrationQueryRepository queryRepository)
         var term = await queryRepository.GetTermAsync(r.Id, ct);
 
         if (term is null)
-            return Result.NotFound<TermDocumentDto>("Term document not found.");
+            return Result.NotFound<TermDocumentDto>(ResultMessages.TermDocumentNotFound);
 
         var response = new TermDocumentDto(
             term.Id,
@@ -65,6 +65,6 @@ public sealed class GetTermHandler(IRegistrationQueryRepository queryRepository)
             term.IsRequired,
             term.EffectiveFromUtc);
 
-        return Result.Success(response, "Term retrieved.");
+        return Result.Success(response, ResultMessages.TermRetrieved);
     }
 }

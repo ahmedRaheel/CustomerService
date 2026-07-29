@@ -43,7 +43,7 @@ public sealed class StartRegistrationHandler(
 
         if (duplicate)
             return Result.Failure<StartRegistrationResponse>(
-                "An active or completed registration already exists for the supplied identity.");
+                ResultMessages.DuplicateRegistration);
 
 
         var registration = RegistrationApplication.Create(
@@ -54,7 +54,7 @@ public sealed class StartRegistrationHandler(
             r.LegacyCustomerId);
 
         await commandRepository.AddAsync(registration, ct);
-        await commandRepository.AddStepAsync(registration.Id, registration.CurrentStep, "Completed", ct);
+        await commandRepository.AddStepAsync(registration.Id, registration.CurrentStep, RegistrationStepStatuses.Completed, ct);
         await commandRepository.SaveChangesAsync(ct);
 
         var response = new StartRegistrationResponse(
@@ -62,7 +62,7 @@ public sealed class StartRegistrationHandler(
             registration.Status,
             registration.CurrentStep);
 
-        return Result.Created(response, "Registration started.");
+        return Result.Created(response, ResultMessages.RegistrationStarted);
     }
 }
 
@@ -94,13 +94,13 @@ public sealed class UpdateRegistrationProfileHandler(
         var registration = await queryRepository.GetAsync(r.Id, ct);
 
         if (registration is null)
-            return Result.NotFound("Registration not found.");
+            return Result.NotFound(ResultMessages.RegistrationNotFound);
 
         registration.UpdateProfile(r.FullName, r.NationalId);
-        await commandRepository.AddStepAsync(registration.Id, RegistrationStep.ProfileCompleted, "Completed", ct);
+        await commandRepository.AddStepAsync(registration.Id, RegistrationStep.ProfileCompleted, RegistrationStepStatuses.Completed, ct);
         await commandRepository.SaveChangesAsync(ct);
 
-        return Result.Success("Profile updated.");
+        return Result.Success(ResultMessages.ProfileUpdated);
     }
 }
 
@@ -129,7 +129,7 @@ public sealed class AcceptTermsHandler(
         var registration = await queryRepository.GetAsync(r.Id, ct);
 
         if (registration is null)
-            return Result.NotFound("Registration not found.");
+            return Result.NotFound(ResultMessages.RegistrationNotFound);
 
         var activeTerms = await queryRepository.GetActiveTermsAsync(ct);
         var requiredTermIds = activeTerms
@@ -139,14 +139,14 @@ public sealed class AcceptTermsHandler(
         var acceptedTermIds = r.TermIds.ToHashSet();
 
         if (!requiredTermIds.IsSubsetOf(acceptedTermIds))
-            return Result.Failure("All required terms must be accepted.");
+            return Result.Failure(ResultMessages.AllRequiredTermsMustBeAccepted);
 
         foreach (var termId in r.TermIds.Distinct())
         {
             var term = activeTerms.SingleOrDefault(x => x.Id == termId);
 
             if (term is null)
-                return Result.Failure("An invalid or inactive term was supplied.");
+                return Result.Failure(ResultMessages.InvalidOrInactiveTerm);
 
             await commandRepository.AddConsentAsync(new RegistrationConsent
             {
@@ -162,10 +162,10 @@ public sealed class AcceptTermsHandler(
         }
 
         registration.MarkTermsAccepted();
-        await commandRepository.AddStepAsync(registration.Id, RegistrationStep.TermsAccepted, "Completed", ct);
+        await commandRepository.AddStepAsync(registration.Id, RegistrationStep.TermsAccepted, RegistrationStepStatuses.Completed, ct);
         await commandRepository.SaveChangesAsync(ct);
 
-        return Result.Success("Terms accepted.");
+        return Result.Success(ResultMessages.TermsAccepted);
     }
 }
 
@@ -194,15 +194,15 @@ public sealed class SetPinHandler(
         var registration = await queryRepository.GetAsync(r.Id, ct);
 
         if (registration is null)
-            return Result.NotFound("Registration not found.");
+            return Result.NotFound(ResultMessages.RegistrationNotFound);
 
         var hashedPin = pinService.Hash(r.Pin);
 
         registration.SetPin(hashedPin.Hash, hashedPin.Salt);
-        await commandRepository.AddStepAsync(registration.Id, RegistrationStep.PinConfigured, "Completed", ct);
+        await commandRepository.AddStepAsync(registration.Id, RegistrationStep.PinConfigured, RegistrationStepStatuses.Completed, ct);
         await commandRepository.SaveChangesAsync(ct);
 
-        return Result.Success("PIN configured.");
+        return Result.Success(ResultMessages.PinConfigured);
     }
 }
 
@@ -229,21 +229,21 @@ public sealed class CompleteRegistrationHandler(
         var registration = await queryRepository.GetAsync(r.Id, ct);
 
         if (registration is null)
-            return Result.NotFound("Registration not found.");
+            return Result.NotFound(ResultMessages.RegistrationNotFound);
 
         var acceptedRequiredTerms = await queryRepository.HasAcceptedRequiredTermsAsync(
             registration.Id,
             ct);
 
         if (!acceptedRequiredTerms)
-            return Result.Failure("Required terms are not accepted.");
+            return Result.Failure(ResultMessages.RequiredTermsNotAccepted);
 
         registration.Complete();
 
-        await commandRepository.AddStepAsync(registration.Id, RegistrationStep.Completed, "Completed", ct);
+        await commandRepository.AddStepAsync(registration.Id, RegistrationStep.Completed, RegistrationStepStatuses.Completed, ct);
         await commandRepository.SaveChangesAsync(ct);
 
-        return Result.Success("Registration completed.");
+        return Result.Success(ResultMessages.RegistrationCompleted);
     }
 }
 
@@ -273,12 +273,12 @@ public sealed class CancelRegistrationHandler(
         var registration = await queryRepository.GetAsync(r.Id, ct);
 
         if (registration is null)
-            return Result.NotFound("Registration not found.");
+            return Result.NotFound(ResultMessages.RegistrationNotFound);
 
         registration.Cancel(r.Reason);
         await commandRepository.SaveChangesAsync(ct);
 
-        return Result.Success("Registration cancelled.");
+        return Result.Success(ResultMessages.RegistrationCancelled);
     }
 }
 
@@ -303,7 +303,7 @@ public sealed class GetRegistrationHandler(IRegistrationQueryRepository queryRep
         var registration = await queryRepository.GetAsync(r.Id, ct);
 
         if (registration is null)
-            return Result.NotFound<RegistrationDto>("Registration not found.");
+            return Result.NotFound<RegistrationDto>(ResultMessages.RegistrationNotFound);
 
         var response = new RegistrationDto(
             registration.Id,
@@ -322,6 +322,6 @@ public sealed class GetRegistrationHandler(IRegistrationQueryRepository queryRep
             registration.CreatedUtc,
             registration.UpdatedUtc);
 
-        return Result.Success(response, "Registration retrieved.");
+        return Result.Success(response, ResultMessages.RegistrationRetrieved);
     }
 }

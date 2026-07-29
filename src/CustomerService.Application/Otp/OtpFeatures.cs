@@ -31,7 +31,7 @@ public sealed class SendOtpHandler(
 
         if (registration is null)
         {
-            return Result.NotFound("Registration not found.");
+            return Result.NotFound(ResultMessages.RegistrationNotFound);
         }
 
         var latest = await queryRepository.GetLatestOtpAsync(
@@ -47,12 +47,12 @@ public sealed class SendOtpHandler(
         var sentInLastHour = await queryRepository.CountOtpsSinceAsync(
             request.RegistrationId,
             request.Channel,
-            DateTime.UtcNow.AddHours(-1),
+            DateTime.UtcNow.AddHours(OtpConstants.HourWindow),
             cancellationToken);
 
-        if (sentInLastHour >= 5)
+        if (sentInLastHour >= OtpConstants.HourlySendLimit)
         {
-            return Result.Failure("OTP hourly limit reached.");
+            return Result.Failure(ResultMessages.OtpHourlyLimitReached);
         }
 
         await commandRepository.InvalidateActiveOtpsAsync(
@@ -67,9 +67,9 @@ public sealed class SendOtpHandler(
             request.Channel,
             hashedOtp.Hash,
             hashedOtp.Salt,
-            10,
-            5,
-            60);
+            OtpConstants.ExpiryMinutes,
+            OtpConstants.MaxAttempts,
+            OtpConstants.ResendCooldownSeconds);
 
         await commandRepository.AddOtpAsync(challenge, cancellationToken);
 
@@ -77,8 +77,8 @@ public sealed class SendOtpHandler(
             ? NotificationChannel.Email
             : NotificationChannel.Sms;
         var templateCode = request.Channel == OtpChannel.Email
-            ? "REGISTRATION_EMAIL_OTP"
-            : "REGISTRATION_SMS_OTP";
+            ? NotificationTemplateCodes.RegistrationEmailOtp
+            : NotificationTemplateCodes.RegistrationSmsOtp;
         var template = await queryRepository.GetTemplateAsync(
             templateCode,
             notificationChannel,
@@ -86,7 +86,7 @@ public sealed class SendOtpHandler(
 
         if (template is null)
         {
-            return Result.NotFound("Notification template not found.");
+            return Result.NotFound(ResultMessages.NotificationTemplateNotFound);
         }
 
         var delivery = await deliveryService.SendOtpAsync(
@@ -107,8 +107,8 @@ public sealed class SendOtpHandler(
         await commandRepository.SaveChangesAsync(cancellationToken);
 
         return Result.Success(request.Channel == OtpChannel.Email
-            ? "Email OTP sent."
-            : "SMS OTP sent.");
+            ? ResultMessages.EmailOtpSent
+            : ResultMessages.SmsOtpSent);
     }
 }
 
@@ -125,7 +125,7 @@ public sealed class VerifyOtpValidator : AbstractValidator<VerifyOtpCommand>
     {
         RuleFor(x => x.RegistrationId).NotEmpty();
         RuleFor(x => x.Channel).IsInEnum();
-        RuleFor(x => x.Otp).Matches("^[0-9]{6}$");
+        RuleFor(x => x.Otp).Matches(OtpConstants.SixDigitPattern);
     }
 }
 
@@ -141,7 +141,7 @@ public sealed class VerifyOtpHandler(
 
         if (registration is null)
         {
-            return Result.NotFound("Registration not found.");
+            return Result.NotFound(ResultMessages.RegistrationNotFound);
         }
 
         var challenge = await queryRepository.GetLatestOtpAsync(
@@ -151,7 +151,7 @@ public sealed class VerifyOtpHandler(
 
         if (challenge is null)
         {
-            return Result.NotFound("OTP not found.");
+            return Result.NotFound(ResultMessages.OtpNotFound);
         }
 
         var verified = challenge.CanVerify
@@ -162,7 +162,7 @@ public sealed class VerifyOtpHandler(
             Id = Guid.NewGuid(),
             OtpChallengeId = challenge.Id,
             WasSuccessful = verified,
-            FailureReason = verified ? null : "Invalid, expired, used or locked OTP.",
+            FailureReason = verified ? null : ResultMessages.InvalidOtpAttempt,
             IpAddress = request.IpAddress,
             UserAgent = request.UserAgent,
             SubmittedUtc = DateTime.UtcNow
@@ -174,7 +174,7 @@ public sealed class VerifyOtpHandler(
         {
             challenge.RecordFailedAttempt();
             await commandRepository.SaveChangesAsync(cancellationToken);
-            return Result.Failure("Invalid or expired OTP.");
+            return Result.Failure(ResultMessages.InvalidOrExpiredOtp);
         }
 
         challenge.MarkVerified();
@@ -195,12 +195,12 @@ public sealed class VerifyOtpHandler(
         await commandRepository.AddStepAsync(
             registration.Id,
             step,
-            "Completed",
+            RegistrationStepStatuses.Completed,
             cancellationToken);
         await commandRepository.SaveChangesAsync(cancellationToken);
 
         return Result.Success(request.Channel == OtpChannel.Email
-            ? "Email verified."
-            : "Mobile verified.");
+            ? ResultMessages.EmailVerified
+            : ResultMessages.MobileVerified);
     }
 }

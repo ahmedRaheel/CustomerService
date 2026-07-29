@@ -33,7 +33,7 @@ public sealed class GetNotificationDeliveriesHandler(
         if (registration is null)
         {
             return Result.NotFound<IReadOnlyList<NotificationDeliveryDto>>(
-                "Registration not found.");
+                ResultMessages.RegistrationNotFound);
         }
 
         var deliveries = await queryRepository.GetDeliveriesAsync(
@@ -55,6 +55,6 @@ public sealed class GetNotificationDeliveriesHandler(
 
         return Result.Success<IReadOnlyList<NotificationDeliveryDto>>(
             response,
-            "Deliveries retrieved.");
+            ResultMessages.DeliveriesRetrieved);
     }
 }

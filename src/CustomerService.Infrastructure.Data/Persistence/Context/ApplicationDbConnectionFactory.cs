@@ -10,7 +10,7 @@ public sealed class ApplicationDbConnectionFactory : IApplicationDbConnectionFac
 {
     private readonly string _connectionString;
     public ApplicationDbConnectionFactory(string connectionString) => _connectionString = connectionString;
-    public ApplicationDbConnectionFactory(IConfiguration configuration) => _connectionString = configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
+    public ApplicationDbConnectionFactory(IConfiguration configuration) => _connectionString = configuration.GetConnectionString(DatabaseConstants.DefaultConnection) ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
     public DbConnection CreateConnection() => new SqlConnection(_connectionString);
     public async Task<DbConnection> CreateOpenConnectionAsync(CancellationToken cancellationToken = default)
     {
